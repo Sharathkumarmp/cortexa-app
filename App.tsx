@@ -2,6 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { FileEvaluationResult, EvaluationResult, ReportDetails } from './types';
 import { evaluateAssignment, generateRubric } from './services/geminiService';
 import { extractTextFromPdf } from './utils/pdfReader';
+import { extractTextFromImage } from './utils/imageReader';
 import { parseStudentInfo } from './utils/fileParser';
 import { generateCsvReport } from './utils/csvGenerator';
 import { generatePdfReport } from './utils/pdfGenerator';
@@ -37,10 +38,11 @@ const App: React.FC = () => {
 
   const handleFiles = (newFiles: FileList | null) => {
     if (newFiles) {
-      const pdfFiles = Array.from(newFiles).filter(file => file.type === 'application/pdf');
+      const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png'];
+      const validFiles = Array.from(newFiles).filter(file => allowedTypes.includes(file.type));
       setFiles(prev => {
         const existingFileNames = new Set(prev.map(f => f.name));
-        const uniqueNewFiles = pdfFiles.filter(f => !existingFileNames.has(f.name));
+        const uniqueNewFiles = validFiles.filter(f => !existingFileNames.has(f.name));
         return [...prev, ...uniqueNewFiles];
       });
       setError(null);
@@ -79,7 +81,7 @@ const App: React.FC = () => {
 
   const handleEvaluate = useCallback(async () => {
     if (files.length === 0 || !rubric.trim()) {
-      setError('Please upload at least one PDF assignment and provide the evaluation rubric.');
+      setError('Please upload at least one assignment file and provide the evaluation rubric.');
       return;
     }
 
@@ -91,14 +93,30 @@ const App: React.FC = () => {
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       const { name: studentName, rollNo: studentRollNo } = parseStudentInfo(file.name);
-      setProgress(`Evaluating file ${i + 1} of ${files.length}: ${file.name}`);
+      
       try {
-        const assignmentText = await extractTextFromPdf(file);
-        if(!assignmentText.trim()){
-            throw new Error("Could not extract text from PDF. The file might be empty or image-based.");
+        let assignmentText = '';
+        
+        if (file.type === 'application/pdf') {
+            setProgress(`Extracting text from PDF: ${file.name}`);
+            assignmentText = await extractTextFromPdf(file);
+        } else if (file.type === 'image/jpeg' || file.type === 'image/png') {
+            assignmentText = await extractTextFromImage(file, (p: any) => {
+                const statusMessage = p.status.replace(/_/g, ' '); // a nice status message
+                setProgress(`OCR on ${file.name}: ${statusMessage} (${Math.round(p.progress * 100)}%)`);
+            });
+        } else {
+            throw new Error(`Unsupported file type: ${file.type}`);
         }
+
+        if(!assignmentText.trim()){
+            throw new Error("Could not extract text from file. The file might be empty or unreadable.");
+        }
+
+        setProgress(`Evaluating ${file.name} with AI...`);
         const evaluation = await evaluateAssignment(assignmentText, rubric, checkSimilarity, checkAIContent);
         newResults.push({ fileName: file.name, studentName, studentRollNo, data: evaluation, error: null });
+
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
         newResults.push({ fileName: file.name, studentName, studentRollNo, data: null, error: `Failed to evaluate: ${errorMessage}` });
@@ -251,7 +269,7 @@ const App: React.FC = () => {
         <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-xl mb-8 animate-slide-in-up" style={{ animationDelay: '100ms' }}>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             <div>
-              <label className="block text-lg font-semibold text-slate-700 mb-2">Student Assignments (PDFs)</label>
+              <label className="block text-lg font-semibold text-slate-700 mb-2">Student Assignments (PDF, JPG, PNG)</label>
               <div
                 onDragEnter={handleDragEnter}
                 onDragLeave={handleDragLeave}
@@ -263,7 +281,7 @@ const App: React.FC = () => {
                   type="file"
                   id="file-upload"
                   multiple
-                  accept=".pdf"
+                  accept=".pdf,.jpg,.jpeg,.png"
                   onChange={(e) => handleFiles(e.target.files)}
                   className="hidden"
                 />
@@ -271,7 +289,7 @@ const App: React.FC = () => {
                    <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 mx-auto text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                     </svg>
-                  <p className="text-slate-600 mt-2 font-semibold">Drag & Drop PDF files here</p>
+                  <p className="text-slate-600 mt-2 font-semibold">Drag & Drop files here (PDF, JPG, PNG)</p>
                   <p className="text-sm text-slate-500">or</p>
                   <span className="font-semibold text-brand-primary hover:underline">Click to browse</span>
                 </label>
