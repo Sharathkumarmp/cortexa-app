@@ -1,0 +1,5 @@
+{
+  "name": "Cortexa",
+  "description": "Cortexa: An intelligent tool for educators to evaluate student assignments against a custom rubric. This app uses AI to provide a score, summary feedback, and a detailed breakdown of how the submission meets each criterion.",
+  "requestFramePermissions": []
+}
